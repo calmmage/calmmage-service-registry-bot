@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "calmmage-service-registry-bot"
-version = "0.0.1"
-description = ""
+version = "0.1.0"
+description = "Telegram bot for monitoring service registry"
 authors = ["Petr Lavrov <calmmage@gmail.com>"]
 readme = "README.md"
 packages = [

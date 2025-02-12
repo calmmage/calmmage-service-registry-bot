@@ -1,39 +1,90 @@
-# Botspot Template
+# Service Registry Bot
 
-A template for creating Telegram bots using [botspot](https://github.com/calmmage/botspot) - a framework built on top of aiogram that provides useful components and utilities.
+A Telegram bot for monitoring service health via heartbeats.
 
 ## Features
 
-- 🚀 Quick setup with minimal boilerplate
-- 🛠 Built-in components for common bot features
-- 🔧 Easy configuration via environment variables
-- 📝 Command menu management out of the box
-- ⚡ Error handling and reporting
-- 🔍 Bot URL printing for easy testing
+- Monitor multiple services via heartbeats
+- Group services by status (Alive/Down/Unknown)
+- Send alerts when services go down
+- Daily status summaries
+- Self-monitoring via heartbeat
 
-## Quick Start
+## Configuration
 
-1. Clone this template:
+Copy `example.env` to `.env` and configure:
+
 ```bash
-git clone https://github.com/calmmage/botspot-template.git your-bot-name
-cd your-bot-name
+# Required: Bot token from @BotFather
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+
+# Service Registry settings
+SERVICE_REGISTRY_URL=http://localhost:8765
+CHECK_INTERVAL_SECONDS=60
+DAILY_SUMMARY_TIME=09:00
+TELEGRAM_CHAT_ID=your_chat_id  # chat to receive alerts
+
+# Bot's own heartbeat settings
+CALMMAGE_SERVICE_REGISTRY_URL=http://localhost:8765
+BOT_SERVICE_KEY=service-registry-bot
 ```
 
-2. Install dependencies:
+## Self-Monitoring
+
+The bot uses `calmlib.utils.service_registry` to monitor its own health. This is implemented in `run.py`:
+
+```python
+from calmlib.utils import run_with_heartbeat
+from app.bot import run_bot
+
+def main():
+    # Get service key for heartbeat
+    service_key = os.getenv("BOT_SERVICE_KEY", "service-registry-bot")
+    
+    # Run bot with heartbeat monitoring
+    run_with_heartbeat(
+        run_bot(),  # This is our async main function
+        service_key=service_key,
+        period=60,  # Send heartbeat every minute
+        debug=False
+    )
+```
+
+This means:
+1. The bot monitors other services
+2. The bot sends its own heartbeats
+3. You can monitor the bot's health just like any other service
+
+## Usage
+
+### Running Locally
+
 ```bash
+# Install dependencies
 poetry install
-```
 
-3. Set up your environment:
-```bash
-cp example.env .env
-# Edit .env with your bot token and settings
-```
-
-4. Run the bot:
-```bash
+# Run the bot
 poetry run python run.py
 ```
+
+### Docker
+
+```bash
+# Build the image
+docker build -t service-registry-bot .
+
+# Run the container
+docker run -d --name service-registry-bot \
+    --env-file .env \
+    service-registry-bot
+```
+
+## Available Commands
+
+- `/start` - Start the bot
+- `/help` - Show help message
+- `/status` - Quick status check
+- `/status_full` - Detailed status with all services
 
 ## Project Structure
 
@@ -51,16 +102,6 @@ poetry run python run.py
 ├── docker-compose.yaml
 └── run.py              # Main entry point - for docker etc.
 ```
-
-## Configuration
-
-The template uses environment variables for configuration. See `example.env` for available options:
-
-- `TELEGRAM_BOT_TOKEN`: Your bot token from @BotFather
-- `BOTSPOT_PRINT_BOT_URL_ENABLED`: Print bot URL on startup
-- `BOTSPOT_ERROR_HANDLER_ENABLED`: Enable error handling
-- `BOTSPOT_BOT_COMMANDS_MENU_ENABLED`: Enable command menu
-- And more...
 
 ## Development
 
