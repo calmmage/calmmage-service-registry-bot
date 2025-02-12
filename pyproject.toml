@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "project-name"
+name = "calmmage-service-registry-bot"
 version = "0.0.1"
 description = ""
 authors = ["Petr Lavrov <calmmage@gmail.com>"]
