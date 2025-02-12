@@ -11,13 +11,11 @@ from botspot.core.bot_manager import BotManager
 # Load environment variables
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-from .routers.settings import router as settings_router
 from .router import app, router as main_router
 
 # Initialize bot and dispatcher
 dp = Dispatcher()
 dp.include_router(main_router)
-dp.include_router(settings_router)
 
 
 def main(debug=False) -> None:
