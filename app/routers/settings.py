@@ -15,6 +15,7 @@ from botspot.components import bot_commands_menu
 from botspot.components.features.ask_user_handler import ask_user_choice
 from botspot.utils import send_safe
 from loguru import logger
+from typing import Dict
 
 from app.app import App
 
