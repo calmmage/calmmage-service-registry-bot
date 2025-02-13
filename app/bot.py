@@ -1,15 +1,16 @@
+from dotenv import load_dotenv
+from pathlib import Path
+
+# Load environment variables first
+load_dotenv(Path(__file__).parent.parent / ".env")
+
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from calmlib.utils import setup_logger, heartbeat_for_sync
-from dotenv import load_dotenv
 from loguru import logger
-from pathlib import Path
 
 from botspot.core.bot_manager import BotManager
-
-# Load environment variables
-load_dotenv(Path(__file__).parent.parent / ".env")
 
 from .router import app, router as main_router
 

@@ -39,12 +39,15 @@ async def check_services_and_alert():
     try:
         # Get new state transitions
         transitions = await _get_state_transitions(only_not_alerted=True)
+        logger.debug(f"Retrieved {len(transitions)} non-alerted transitions")
         if not transitions:
+            logger.debug("No new transitions to process")
             return
         
         # Group transitions by service
         service_transitions = {}
         for transition in transitions:
+            logger.debug(f"Processing transition: {transition}")
             service_key = transition["service_key"]
             if service_key not in service_transitions:
                 service_transitions[service_key] = []
@@ -52,6 +55,7 @@ async def check_services_and_alert():
         
         # Send alerts for each service
         for service_key, transitions in service_transitions.items():
+            logger.debug(f"Sending alert for {service_key} with {len(transitions)} transitions")
             # Format message
             lines = [f"🚨 *Service Status Change: {service_key}*\n"]
             
@@ -68,16 +72,20 @@ async def check_services_and_alert():
                 if alert_message:
                     lines.append(f"ℹ️ {alert_message}")
             
+            message = "\n".join(lines)
+            logger.debug(f"Sending message:\n{message}")
+            
             # Send alert
             await send_safe(
                 app.config.telegram_chat_id,
-                "\n".join(lines),
+                message,
                 parse_mode="Markdown"
             )
             
             # Mark transitions as alerted
             async with httpx.AsyncClient() as client:
                 for transition in transitions:
+                    logger.debug(f"Marking transition {transition['_id']} as alerted")
                     await client.post(
                         f"{get_api_url()}/services/history/{transition['_id']}/mark-alerted"
                     )
