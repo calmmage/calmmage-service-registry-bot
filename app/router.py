@@ -1,3 +1,5 @@
+"""Main router for the service registry bot."""
+
 from collections import defaultdict
 
 import httpx
@@ -9,9 +11,14 @@ from botspot.utils import send_safe
 from loguru import logger
 
 from app.app import App
+from app.routers import status, settings
 
 router = Router()
 app = App()
+
+# Include sub-routers
+router.include_router(status.router)
+router.include_router(settings.router)
 
 
 @router.startup()
@@ -48,11 +55,13 @@ def format_service_line(service_key: str, status_data: dict, include_details: bo
 def format_services_status(
     services: dict, include_dead: bool = False, include_details: bool = False
 ) -> list[str]:
-    """Format services status grouped by status"""
-    # Group services by status
-    by_status = defaultdict(list)
+    """Format services status grouped by status and then by service group"""
+    # Group services by status and then by group
+    by_status_and_group = defaultdict(lambda: defaultdict(list))
     for service_key, data in sorted(services.items()):
-        by_status[data["status"]].append((service_key, data))
+        status = data["status"]
+        group = data.get("service_group", "Ungrouped")  # Default group for services without one
+        by_status_and_group[status][group].append((service_key, data))
 
     lines = ["*Services Status:*\n"]
 
@@ -62,14 +71,31 @@ def format_services_status(
 
     # Add each status group
     for status in status_order:
-        services_with_status = by_status.get(status, [])
-        if services_with_status:
+        services_by_group = by_status_and_group.get(status, {})
+        if services_by_group:
             # Add status header with emoji
             lines.append(f"{status_emoji[status]} *{status.title()}:*")
-            # Add each service in this status
-            for service_key, data in services_with_status:
-                lines.append(format_service_line(service_key, data, include_details))
-            lines.append("")  # Empty line between groups
+
+            # Add each group under this status
+            for group, services_in_group in sorted(services_by_group.items()):
+                # Add group header if there are multiple groups
+                if len(services_by_group) > 1:
+                    lines.append(f"  📁 *{group}:*")
+
+                # Add each service in this group
+                for service_key, data in services_in_group:
+                    service_line = format_service_line(service_key, data, include_details)
+                    # Indent service lines if we're showing groups
+                    if len(services_by_group) > 1:
+                        service_line = "    " + service_line
+                    lines.append(service_line)
+
+                # Add space between groups if there are multiple
+                if len(services_by_group) > 1:
+                    lines.append("")
+
+            # Add space between status sections
+            lines.append("")
 
     return lines
 
@@ -95,8 +121,15 @@ async def help_handler(message: Message):
         "Available commands:\n"
         "/start - Start the bot\n"
         "/help - Show this help message\n"
-        "/status - Quick status check\n"
-        "/status_full - Detailed status with all services\n"
+        "\nStatus Commands:\n"
+        "/status - Quick status check (grouped by status and service group)\n"
+        "/status_full - Detailed status with all services and groups\n"
+        "/history <service_key> [limit] - View service state transition history\n"
+        "\nSettings Commands:\n"
+        "/settings <service_key> - Show service settings\n"
+        "/toggle_alerts <service_key> - Enable/disable alerts\n"
+        "/set_service_name <service_key> <name> - Set service display name\n"
+        "\nOther Commands:\n"
         "/help_botspot - Show Botspot help\n"
         "/timezone - Set your timezone\n"
         "/error_test - Test error handling",
@@ -131,7 +164,7 @@ async def status_handler(message: Message):
     except Exception as e:
         error_msg = f"Failed to get services status: {e}"
         logger.error(error_msg)
-        await send_safe(message.chat.id, f"❌ {error_msg}")
+        # await send_safe(message.chat.id, f"{error_msg}")
 
 
 @bot_commands_menu.add_command("status_full", "Detailed status with all services")
@@ -151,4 +184,4 @@ async def status_full_handler(message: Message):
     except Exception as e:
         error_msg = f"Failed to get services status: {e}"
         logger.error(error_msg)
-        await send_safe(message.chat.id, f"❌ {error_msg}")
+        # await send_safe(message.chat.id, f"{error_msg}")
