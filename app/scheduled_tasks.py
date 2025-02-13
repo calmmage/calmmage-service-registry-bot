@@ -15,15 +15,11 @@ async def _get_state_transitions(only_not_alerted: bool = True) -> dict:
     logger.info(f"Checking state transitions at {api_url}")
 
     async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{api_url}/state-transitions", params={"only_not_alerted": only_not_alerted}
+        response = await client.post(
+            f"{api_url}/state-transitions", json={"only_not_alerted": only_not_alerted}
         )
         response.raise_for_status()
-        # logger.debug(f"Response status: {response.status_code}")
-        # logger.debug(f"Response headers: {response.headers}")
-        # logger.debug(f"Response text: {response.text}")
         data = response.json()
-        # logger.debug(f"Parsed JSON: {data}")
         return data
 
 
@@ -53,25 +49,21 @@ async def check_services_and_alert():
         # Send alerts for each service
         for service_key, transition in transitions.items():
             logger.debug(f"Sending alert for {service_key}")
+
+            # Format timestamp
+            last_seen = datetime.fromisoformat(transition.get("last_seen", transition["timestamp"]))
+            formatted_time = last_seen.strftime("%d %b at %H:%M")
+
             # Format message
-            message += f"🚨 *Service Status Change: {service_key}*\n"
-
-            from_state = transition["from_state"]
-            to_state = transition["to_state"]
-            timestamp = datetime.fromisoformat(transition["timestamp"])
-            alert_message = transition.get("alert_message")
-
+            emoji = "🔴" if transition["to_state"].lower() == "down" else ""
             message += (
-                f"Status changed from *{from_state}* to *{to_state}* "
-                f"at {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                f"{emoji}{service_key} is {transition['to_state']} (Last seen {formatted_time})\n"
             )
-            if alert_message:
-                message += f"ℹ️ {alert_message}"
 
             # Mark transitions as alerted
             async with httpx.AsyncClient() as client:
                 await client.post(
-                    f"{get_api_url()}/mark-alerted", params={"service_key": service_key}
+                    f"{get_api_url()}/mark-alerted", json={"service_key": service_key}
                 )
 
         # Send alert
