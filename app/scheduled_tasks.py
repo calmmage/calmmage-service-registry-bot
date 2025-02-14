@@ -4,7 +4,7 @@ from datetime import datetime
 from loguru import logger
 
 from app.app import App
-from app.router import get_api_url
+from app.routers.settings import get_api_url
 
 app = App()
 
@@ -45,10 +45,20 @@ async def check_services_and_alert():
 
         logger.debug(f"Retrieved {len(transitions)} non-alerted transitions")
 
+        # Get all services to access their display names
+        services = await _get_services()
+
         message = ""
         # Send alerts for each service
         for service_key, transition in transitions.items():
             logger.debug(f"Sending alert for {service_key}")
+
+            # Get display name from service record if available
+            display_name = (
+                services[service_key]["service"].display_name
+                if service_key in services
+                else service_key
+            )
 
             # Format timestamp
             last_seen = datetime.fromisoformat(transition.get("last_seen", transition["timestamp"]))
@@ -57,7 +67,7 @@ async def check_services_and_alert():
             # Format message
             emoji = "🔴" if transition["to_state"].lower() == "down" else ""
             message += (
-                f"{emoji}{service_key} is {transition['to_state']} (Last seen {formatted_time})\n"
+                f"{emoji}{display_name} is {transition['to_state']} (Last seen {formatted_time})\n"
             )
 
             # Mark transitions as alerted
@@ -73,7 +83,7 @@ async def check_services_and_alert():
     except Exception as e:
         error_msg = f"Failed to check services: {e}"
         logger.error(error_msg)
-        await send_safe(app.config.telegram_chat_id, f"❌ {error_msg}")
+        # await send_safe(app.config.telegram_chat_id, f"❌ {error_msg}")
 
 
 async def daily_services_summary():
@@ -91,26 +101,28 @@ async def daily_services_summary():
 
         # Group services by status
         by_status = {"alive": [], "down": [], "dead": []}
-        for key, service in services.items():
-            status = service["status"].lower()
-            by_status[status].append((key, service))
+        for key, service_data in services.items():
+            status = service_data["status"].lower()
+            by_status[status].append((key, service_data))
 
         # Add alive services
         if by_status["alive"]:
-            lines.append("✅ *Healthy Services:*")
-            for key, service in sorted(by_status["alive"]):
-                lines.append(f"- {key}")
+            lines.append("➕ *Healthy Services:*")
+            for key, service_data in sorted(by_status["alive"]):
+                service = service_data["service"]
+                lines.append(f"- {service.display_name}")
             lines.append("")
 
         # Add troubled services with details
         troubled = by_status["down"] + by_status["dead"]
         if troubled:
             lines.append("⚠️ *Services Needing Attention:*")
-            for key, service in sorted(troubled):
-                status = service["status"]
-                updated_at = datetime.fromisoformat(service["updated_at"])
+            for key, service_data in sorted(troubled):
+                service = service_data["service"]
+                status = service_data["status"]
+                updated_at = datetime.fromisoformat(service_data["updated_at"])
                 lines.append(
-                    f"- {key}: *{status}*\n"
+                    f"- {service.display_name}: *{status}*\n"
                     f"  Last seen: {updated_at.strftime('%Y-%m-%d %H:%M:%S')}"
                 )
 
@@ -120,4 +132,4 @@ async def daily_services_summary():
     except Exception as e:
         error_msg = f"Failed to generate daily summary: {e}"
         logger.error(error_msg)
-        await send_safe(app.config.telegram_chat_id, f"❌ {error_msg}")
+        # await send_safe(app.config.telegram_chat_id, f"❌ {error_msg}")

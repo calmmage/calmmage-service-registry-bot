@@ -1,14 +1,10 @@
 """Main router for the service registry bot."""
 
-from collections import defaultdict
-
-import httpx
 from aiogram import Router, html
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from botspot.components import bot_commands_menu
 from botspot.utils import send_safe
-from loguru import logger
 
 from app.app import App
 from app.routers import status, settings
@@ -19,85 +15,6 @@ app = App()
 # Include sub-routers
 router.include_router(status.router)
 router.include_router(settings.router)
-
-
-@router.startup()
-async def on_startup():
-    """Setup scheduled tasks on startup"""
-    await app.setup_scheduled_tasks()
-
-
-def get_api_url() -> str:
-    """Get API URL from environment variable"""
-    return app.config.service_registry_url
-
-
-def format_service_line(service_key: str, status_data: dict, include_details: bool = False) -> str:
-    """Format a single service line"""
-    time_since = status_data.get("time_since_last_heartbeat_readable", "never")
-    line = f"`{service_key:25}`  ({time_since} ago)"
-
-    if include_details:
-        count = status_data["heartbeat_count"]
-        interval = status_data.get("median_interval")
-        interval_str = f", interval: {interval:.1f}s" if interval else ""
-        line += f"\n    Heartbeats: {count}{interval_str}"
-
-        # Add metadata if present
-        metadata = status_data.get("metadata", {})
-        if metadata:
-            meta_str = ", ".join(f"{k}: {v}" for k, v in metadata.items())
-            line += f"\n    Metadata: {meta_str}"
-
-    return line
-
-
-def format_services_status(
-    services: dict, include_dead: bool = False, include_details: bool = False
-) -> list[str]:
-    """Format services status grouped by status and then by service group"""
-    # Group services by status and then by group
-    by_status_and_group = defaultdict(lambda: defaultdict(list))
-    for service_key, data in sorted(services.items()):
-        status = data["status"]
-        group = data.get("service_group", "Ungrouped")  # Default group for services without one
-        by_status_and_group[status][group].append((service_key, data))
-
-    lines = ["*Services Status:*\n"]
-
-    # Order of status display
-    status_order = ["down", "unknown"] + (["dead"] if include_dead else []) + ["alive"]
-    status_emoji = {"down": "➖", "unknown": "❓", "dead": "⚫️", "alive": "➕"}
-
-    # Add each status group
-    for status in status_order:
-        services_by_group = by_status_and_group.get(status, {})
-        if services_by_group:
-            # Add status header with emoji
-            lines.append(f"{status_emoji[status]} *{status.title()}:*")
-
-            # Add each group under this status
-            for group, services_in_group in sorted(services_by_group.items()):
-                # Add group header if there are multiple groups
-                if len(services_by_group) > 1:
-                    lines.append(f"  📁 *{group}:*")
-
-                # Add each service in this group
-                for service_key, data in services_in_group:
-                    service_line = format_service_line(service_key, data, include_details)
-                    # Indent service lines if we're showing groups
-                    if len(services_by_group) > 1:
-                        service_line = "    " + service_line
-                    lines.append(service_line)
-
-                # Add space between groups if there are multiple
-                if len(services_by_group) > 1:
-                    lines.append("")
-
-            # Add space between status sections
-            lines.append("")
-
-    return lines
 
 
 @bot_commands_menu.add_command("start", "Start the bot")
@@ -136,52 +53,7 @@ async def help_handler(message: Message):
     )
 
 
-async def _get_services_status() -> dict:
-    """Helper to get services status from API"""
-    api_url = get_api_url()
-    logger.info(f"Checking services status at {api_url}")
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(f"{api_url}/status")
-        response.raise_for_status()
-        return response.json()["services"]
-
-
-@bot_commands_menu.add_command("status", "Quick status check")
-@router.message(Command("status"))
-async def status_handler(message: Message):
-    """Handle basic status command - shows only active services"""
-    try:
-        services = await _get_services_status()
-        if not services:
-            await send_safe(message.chat.id, "No services registered yet.")
-            return
-
-        # Format and send status (without dead services and details)
-        lines = format_services_status(services, include_dead=False, include_details=False)
-        await send_safe(message.chat.id, "\n".join(lines), parse_mode="Markdown")
-
-    except Exception as e:
-        error_msg = f"Failed to get services status: {e}"
-        logger.error(error_msg)
-        # await send_safe(message.chat.id, f"{error_msg}")
-
-
-@bot_commands_menu.add_command("status_full", "Detailed status with all services")
-@router.message(Command("status_full"))
-async def status_full_handler(message: Message):
-    """Handle full status command - shows all services with details"""
-    try:
-        services = await _get_services_status()
-        if not services:
-            await send_safe(message.chat.id, "No services registered yet.")
-            return
-
-        # Format and send status (with dead services and details)
-        lines = format_services_status(services, include_dead=True, include_details=True)
-        await send_safe(message.chat.id, "\n".join(lines), parse_mode="Markdown")
-
-    except Exception as e:
-        error_msg = f"Failed to get services status: {e}"
-        logger.error(error_msg)
-        # await send_safe(message.chat.id, f"{error_msg}")
+@router.startup()
+async def on_startup():
+    """Setup scheduled tasks on startup"""
+    await app.setup_scheduled_tasks()

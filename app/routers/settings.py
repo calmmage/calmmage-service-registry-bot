@@ -17,15 +17,9 @@ from botspot.utils import send_safe
 from loguru import logger
 from typing import Dict
 
-from app.app import App
+from app.utils import get_api_url
 
 router = Router()
-app = App()
-
-
-def get_api_url() -> str:
-    """Get API URL from environment variable"""
-    return app.config.service_registry_url
 
 
 async def _get_service_choices() -> Dict[str, str]:
@@ -39,8 +33,7 @@ async def _get_service_choices() -> Dict[str, str]:
     choices = {}
     for service_key, service in services.items():
         # Use display name if available
-        metadata = service.get("metadata", {}) or {}
-        display_name = metadata.get("display_name", service_key)
+        display_name = service["display_name"]
         alerts_enabled = service.get("alerts_enabled", True)
         status = "🔔 Enabled" if alerts_enabled else "🔕 Disabled"
         choices[service_key] = f"{display_name} ({status})"
@@ -89,7 +82,7 @@ async def toggle_alerts_handler(message: Message, state: FSMContext):
 
         if service_key not in services:
             await send_safe(
-                message.chat.id, f"❌ Service '{service_key}' not found.", parse_mode="Markdown"
+                message.chat.id, f"Service '{service_key}' not found.", parse_mode="Markdown"
             )
             return
 
@@ -105,9 +98,8 @@ async def toggle_alerts_handler(message: Message, state: FSMContext):
             )
             response.raise_for_status()
 
-        # Get display name if available
-        metadata = services[service_key].get("metadata", {}) or {}
-        display_name = metadata.get("display_name", service_key)
+        # Get display name
+        display_name = services[service_key]["display_name"]
 
         # Send confirmation with emoji
         state_str = "enabled 🔔" if new_state else "disabled 🔕"
@@ -186,14 +178,11 @@ async def set_service_name_handler(message: Message, state: FSMContext):
             )
             return
 
-        # Update service metadata with display name
-        metadata = services[service_key].get("metadata", {}) or {}
-        metadata["display_name"] = display_name
-
+        # Update service with new display name
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{api_url}/configure-service",
-                json={"service_key": service_key, "metadata": metadata},
+                json={"service_key": service_key, "display_name": display_name},
             )
             response.raise_for_status()
 
@@ -260,13 +249,21 @@ async def settings_handler(message: Message, state: FSMContext):
         # Format settings message
         lines = [
             f"*Settings for {service_key}:*\n",
-            f"• Display Name: {metadata.get('display_name', 'Not set')}",
+            f"• Display Name: {service['display_name']}",
             f"• Alerts: {'Enabled' if service.get('alerts_enabled', True) else 'Disabled'}",
             f"• Service Type: {service.get('service_type', 'Not set')}",
             f"• Service Group: {service.get('service_group', 'Not set')}",
             f"• Expected Period: {service.get('expected_period', 'Not set')} seconds",
             f"• Dead After: {service.get('dead_after', 'Not set')} seconds",
         ]
+
+        # Add metadata if present (excluding display_name)
+        if metadata:
+            metadata_display = {k: v for k, v in metadata.items() if k != "display_name"}
+            if metadata_display:
+                lines.append("\n*Additional Metadata:*")
+                for key, value in metadata_display.items():
+                    lines.append(f"• {key}: {value}")
 
         await send_safe(message.chat.id, "\n".join(lines), parse_mode="Markdown")
 

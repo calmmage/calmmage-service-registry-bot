@@ -20,23 +20,19 @@ from datetime import datetime, timedelta
 from loguru import logger
 from typing import Dict
 
-from app.app import App
+from app.utils import get_api_url
 
 router = Router()
-app = App()
-
-
-def get_api_url() -> str:
-    """Get API URL from environment variable"""
-    return app.config.service_registry_url
 
 
 def format_service_line(service_key: str, status_data: dict, include_details: bool = False) -> str:
     """Format a single service line"""
     time_since = status_data.get("time_since_last_heartbeat_readable", "never")
-    # Use display name if available
-    display_name = status_data.get("metadata", {}).get("display_name", service_key)
-    line = f"`{display_name:25}`  ({time_since} ago)"
+    # Get service info
+    service = status_data["service"]
+    display_name = service.get("display_name", service_key)
+    # Add dash before the line
+    line = f"- `{display_name:25}`  ({time_since} ago)"
 
     if include_details:
         count = status_data["heartbeat_count"]
@@ -45,13 +41,9 @@ def format_service_line(service_key: str, status_data: dict, include_details: bo
         line += f"\n    Heartbeats: {count}{interval_str}"
 
         # Add metadata if present
-        metadata = status_data.get("metadata", {})
-        if metadata:
-            # Skip display_name in metadata display
-            metadata_display = {k: v for k, v in metadata.items() if k != "display_name"}
-            if metadata_display:
-                meta_str = ", ".join(f"{k}: {v}" for k, v in metadata_display.items())
-                line += f"\n    Metadata: {meta_str}"
+        if service.get("metadata"):
+            meta_str = ", ".join(f"{k}: {v}" for k, v in service.get("metadata", {}).items())
+            line += f"\n    Metadata: {meta_str}"
 
     return line
 
@@ -74,9 +66,9 @@ def format_transition(transition: dict) -> str:
 
     # Add emoji based on transition type
     if transition["to_state"] == "alive":
-        emoji = "✅"  # Green checkmark for back online
+        emoji = "➕"  # Plus sign for back online
     elif transition["to_state"] in ["down", "dead"]:
-        emoji = "❌"  # Red X for down/dead
+        emoji = "➖"  # Minus sign for down/dead
     else:
         emoji = "❓"  # Question mark for unknown
 
@@ -93,8 +85,9 @@ def format_services_status(
     # Group services by status and then by group
     by_status_and_group = defaultdict(lambda: defaultdict(list))
     for service_key, data in sorted(services.items()):
-        status = data["status"]
-        group = data.get("service_group", "Ungrouped")  # Default group for services without one
+        service = data["service"]
+        status = service.get("status", "unknown")
+        group = service.get("service_group", "Ungrouped")  # Default group for services without one
         by_status_and_group[status][group].append((service_key, data))
 
     lines = ["*Services Status:*\n"]
@@ -168,8 +161,7 @@ async def _get_service_choices() -> Dict[str, str]:
 
     choices = {}
     for service_key, service in services.items():
-        # Use display name if available
-        display_name = service.get("metadata", {}).get("display_name", service_key)
+        display_name = service["display_name"]
         status = service.get("status", "unknown")
         choices[service_key] = f"{display_name} ({status})"
 
@@ -214,7 +206,7 @@ async def history_handler(message: Message, state: FSMContext):
         except ValueError:
             await send_safe(
                 message.chat.id,
-                "❌ Invalid limit value. Using default (10).",
+                "Invalid limit value. Using default (10).",
                 parse_mode="Markdown",
             )
             limit = 10
@@ -227,12 +219,12 @@ async def history_handler(message: Message, state: FSMContext):
 
         if service_key not in services:
             await send_safe(
-                message.chat.id, f"❌ Service '{service_key}' not found.", parse_mode="Markdown"
+                message.chat.id, f"Service '{service_key}' not found.", parse_mode="Markdown"
             )
             return
 
-        # Get display name if available
-        display_name = services[service_key].get("metadata", {}).get("display_name", service_key)
+        # Get display name directly
+        display_name = services[service_key]["display_name"]
 
         # Get state transitions
         transitions = await _get_service_transitions(service_key, limit)
@@ -255,7 +247,7 @@ async def history_handler(message: Message, state: FSMContext):
     except Exception as e:
         error_msg = f"Failed to get service history: {e}"
         logger.error(error_msg)
-        await send_safe(message.chat.id, f"❌ {error_msg}")
+        await send_safe(message.chat.id, f"{error_msg}")
 
 
 @bot_commands_menu.add_command("status", "Quick status check")
@@ -275,7 +267,7 @@ async def status_handler(message: Message):
     except Exception as e:
         error_msg = f"Failed to get services status: {e}"
         logger.error(error_msg)
-        await send_safe(message.chat.id, f"❌ {error_msg}")
+        await send_safe(message.chat.id, f" {error_msg}")
 
 
 @bot_commands_menu.add_command("status_full", "Detailed status with all services")
@@ -295,4 +287,4 @@ async def status_full_handler(message: Message):
     except Exception as e:
         error_msg = f"Failed to get services status: {e}"
         logger.error(error_msg)
-        await send_safe(message.chat.id, f"❌ {error_msg}")
+        await send_safe(message.chat.id, f"{error_msg}")
