@@ -202,7 +202,7 @@ async def history_handler(message: Message, state: FSMContext):
                 state,
                 cleanup=True,
             )
-            if not service_key:
+            if not service_key:  # User cancelled or timeout
                 await send_safe(message.chat.id, "Operation cancelled.", parse_mode="Markdown")
                 return
         else:

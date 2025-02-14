@@ -39,7 +39,8 @@ async def _get_service_choices() -> Dict[str, str]:
     choices = {}
     for service_key, service in services.items():
         # Use display name if available
-        display_name = service.get("metadata", {}).get("display_name", service_key)
+        metadata = service.get("metadata", {}) or {}
+        display_name = metadata.get("display_name", service_key)
         alerts_enabled = service.get("alerts_enabled", True)
         status = "🔔 Enabled" if alerts_enabled else "🔕 Disabled"
         choices[service_key] = f"{display_name} ({status})"
@@ -57,7 +58,6 @@ async def toggle_alerts_handler(message: Message, state: FSMContext):
         parts = message.text.strip().split(maxsplit=1)
 
         # If no service key provided, ask user to choose one
-        service_key = None
         if len(parts) < 2:
             choices = await _get_service_choices()
             if not choices:
@@ -73,7 +73,7 @@ async def toggle_alerts_handler(message: Message, state: FSMContext):
                 state,
                 cleanup=True,
             )
-            if not service_key:
+            if not service_key:  # User cancelled or timeout
                 await send_safe(message.chat.id, "Operation cancelled.", parse_mode="Markdown")
                 return
         else:
@@ -106,7 +106,8 @@ async def toggle_alerts_handler(message: Message, state: FSMContext):
             response.raise_for_status()
 
         # Get display name if available
-        display_name = services[service_key].get("metadata", {}).get("display_name", service_key)
+        metadata = services[service_key].get("metadata", {}) or {}
+        display_name = metadata.get("display_name", service_key)
 
         # Send confirmation with emoji
         state_str = "enabled 🔔" if new_state else "disabled 🔕"
@@ -124,17 +125,47 @@ async def toggle_alerts_handler(message: Message, state: FSMContext):
 
 @bot_commands_menu.add_command("set_service_name", "Set a display name for a service")
 @router.message(Command("set_service_name"))
-async def set_service_name_handler(message: Message):
+async def set_service_name_handler(message: Message, state: FSMContext):
     """Handle set service name command.
     Usage: /set_service_name <service_key> <display_name>"""
     try:
         # Parse command arguments
-        parts = message.text.split(maxsplit=2)
-        if len(parts) < 3:
+        parts = message.text.strip().split(maxsplit=2)
+
+        # If no service key provided, ask user to choose one
+        if len(parts) < 2:
+            choices = await _get_service_choices()
+            if not choices:
+                await send_safe(
+                    message.chat.id, "No services registered yet.", parse_mode="Markdown"
+                )
+                return
+
+            service_key = await ask_user_choice(
+                message.chat.id,
+                "Which service would you like to rename?",
+                choices,
+                state,
+                cleanup=True,
+            )
+            if not service_key:  # User cancelled or timeout
+                await send_safe(message.chat.id, "Operation cancelled.", parse_mode="Markdown")
+                return
+
+            # Now ask for the display name
             await send_safe(
                 message.chat.id,
-                "❌ Please specify both service key and display name.\n"
-                "Usage: /set_service_name <service_key> <display_name>",
+                "Please enter the new display name for the service:",
+                parse_mode="Markdown",
+            )
+            return
+
+        # If we have service key but no display name
+        if len(parts) < 3:
+            service_key = parts[1].strip()
+            await send_safe(
+                message.chat.id,
+                "Please enter the new display name for the service:",
                 parse_mode="Markdown",
             )
             return
@@ -156,13 +187,13 @@ async def set_service_name_handler(message: Message):
             return
 
         # Update service metadata with display name
-        current_metadata = services[service_key].get("metadata", {})
-        current_metadata["display_name"] = display_name
+        metadata = services[service_key].get("metadata", {}) or {}
+        metadata["display_name"] = display_name
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{api_url}/configure-service",
-                json={"service_key": service_key, "metadata": current_metadata},
+                json={"service_key": service_key, "metadata": metadata},
             )
             response.raise_for_status()
 
@@ -180,21 +211,35 @@ async def set_service_name_handler(message: Message):
 
 @bot_commands_menu.add_command("settings", "Show current settings for a service")
 @router.message(Command("settings"))
-async def settings_handler(message: Message):
+async def settings_handler(message: Message, state: FSMContext):
     """Handle settings command.
     Usage: /settings <service_key>"""
     try:
         # Parse service key from command
-        parts = message.text.split(maxsplit=1)
-        if len(parts) < 2:
-            await send_safe(
-                message.chat.id,
-                "❌ Please specify a service key.\n" "Usage: /settings <service_key>",
-                parse_mode="Markdown",
-            )
-            return
+        parts = message.text.strip().split(maxsplit=1)
 
-        service_key = parts[1].strip()
+        # If no service key provided, ask user to choose one
+        if len(parts) < 2:
+            choices = await _get_service_choices()
+            if not choices:
+                await send_safe(
+                    message.chat.id, "No services registered yet.", parse_mode="Markdown"
+                )
+                return
+
+            service_key = await ask_user_choice(
+                message.chat.id,
+                "Which service would you like to see settings for?",
+                choices,
+                state,
+                cleanup=True,
+            )
+            if not service_key:  # User cancelled or timeout
+                await send_safe(message.chat.id, "Operation cancelled.", parse_mode="Markdown")
+                return
+        else:
+            service_key = parts[1].strip()
+
         api_url = get_api_url()
 
         # Get service details
@@ -210,7 +255,7 @@ async def settings_handler(message: Message):
             return
 
         service = services[service_key]
-        metadata = service.get("metadata", {})
+        metadata = service.get("metadata", {}) or {}
 
         # Format settings message
         lines = [
