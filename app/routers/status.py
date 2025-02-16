@@ -29,8 +29,8 @@ def format_service_line(service_key: str, status_data: dict, include_details: bo
     """Format a single service line"""
     time_since = status_data.get("time_since_last_heartbeat_readable", "never")
     # Get service info
-    service = status_data["service"]
-    display_name = service.get("display_name", service_key)
+    service = status_data.get("service", {})
+    display_name = service.get("display_name") or service_key
     # Add dash before the line
     line = f"- `{display_name:25}`  ({time_since} ago)"
 

@@ -219,7 +219,7 @@ async def settings_handler(message: Message, state: FSMContext):
 
     if service_key not in services:
         await send_safe(
-            message.chat.id, f"❌ Service '{service_key}' not found.", parse_mode="Markdown"
+            message.chat.id, f"Service '{service_key}' not found.", parse_mode="Markdown"
         )
         return
 

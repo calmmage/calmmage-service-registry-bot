@@ -53,11 +53,17 @@ async def check_services_and_alert():
         logger.debug(f"Sending alert for {service_key}")
 
         # Get display name from service record if available
-        display_name = (
-            services[service_key]["service"].display_name
-            if service_key in services
-            else service_key
-        )
+        display_name = service_key
+        if service_key in services:
+            service_data = services[service_key]
+            if isinstance(service_data, dict) and "service" in service_data:
+                service = service_data["service"]
+                if (
+                    isinstance(service, dict)
+                    and "display_name" in service
+                    and service["display_name"]
+                ):
+                    display_name = service["display_name"]
 
         # Format timestamp
         last_seen = datetime.fromisoformat(transition.get("last_seen", transition["timestamp"]))
