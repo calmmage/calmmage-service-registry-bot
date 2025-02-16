@@ -173,118 +173,97 @@ async def _get_service_choices() -> Dict[str, str]:
 async def history_handler(message: Message, state: FSMContext):
     """Handle history command - shows state transitions for a service.
     Usage: /history <service_key> [limit]"""
+    # Parse command arguments
+    parts = message.text.strip().split()
+
+    # If no service key provided, ask user to choose one
+    if len(parts) < 2:
+        choices = await _get_service_choices()
+        if not choices:
+            await send_safe(message.chat.id, "No services registered yet.", parse_mode="Markdown")
+            return
+
+        service_key = await ask_user_choice(
+            message.chat.id,
+            "Which service would you like to see the history for?",
+            choices,
+            state,
+            cleanup=True,
+        )
+        if not service_key:  # User cancelled or timeout
+            await send_safe(message.chat.id, "Operation cancelled.", parse_mode="Markdown")
+            return
+    else:
+        service_key = parts[1].strip()
+
+    # Parse limit if provided
     try:
-        # Parse command arguments
-        parts = message.text.strip().split()
+        limit = int(parts[2]) if len(parts) > 2 else 10
+    except ValueError:
+        await send_safe(
+            message.chat.id,
+            "Invalid limit value. Using default (10).",
+            parse_mode="Markdown",
+        )
+        limit = 10
 
-        # If no service key provided, ask user to choose one
-        service_key = None
-        if len(parts) < 2:
-            choices = await _get_service_choices()
-            if not choices:
-                await send_safe(
-                    message.chat.id, "No services registered yet.", parse_mode="Markdown"
-                )
-                return
+    # Get service details first to check if it exists and get display name
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"{get_api_url()}/services")
+        response.raise_for_status()
+        services = response.json()
 
-            service_key = await ask_user_choice(
-                message.chat.id,
-                "Which service would you like to see the history for?",
-                choices,
-                state,
-                cleanup=True,
-            )
-            if not service_key:  # User cancelled or timeout
-                await send_safe(message.chat.id, "Operation cancelled.", parse_mode="Markdown")
-                return
-        else:
-            service_key = parts[1].strip()
+    if service_key not in services:
+        await send_safe(
+            message.chat.id, f"Service '{service_key}' not found.", parse_mode="Markdown"
+        )
+        return
 
-        # Parse limit if provided
-        try:
-            limit = int(parts[2]) if len(parts) > 2 else 10
-        except ValueError:
-            await send_safe(
-                message.chat.id,
-                "Invalid limit value. Using default (10).",
-                parse_mode="Markdown",
-            )
-            limit = 10
+    # Get display name directly
+    display_name = services[service_key]["display_name"]
 
-        # Get service details first to check if it exists and get display name
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{get_api_url()}/services")
-            response.raise_for_status()
-            services = response.json()
+    # Get state transitions
+    transitions = await _get_service_transitions(service_key, limit)
 
-        if service_key not in services:
-            await send_safe(
-                message.chat.id, f"Service '{service_key}' not found.", parse_mode="Markdown"
-            )
-            return
+    if not transitions:
+        await send_safe(
+            message.chat.id,
+            f"No state transitions found for service '{display_name}'.",
+            parse_mode="Markdown",
+        )
+        return
 
-        # Get display name directly
-        display_name = services[service_key]["display_name"]
+    # Format and send transitions
+    lines = [f"*State History for {display_name}:*\n"]
+    for transition in transitions:
+        lines.append(format_transition(transition))
 
-        # Get state transitions
-        transitions = await _get_service_transitions(service_key, limit)
-
-        if not transitions:
-            await send_safe(
-                message.chat.id,
-                f"No state transitions found for service '{display_name}'.",
-                parse_mode="Markdown",
-            )
-            return
-
-        # Format and send transitions
-        lines = [f"*State History for {display_name}:*\n"]
-        for transition in transitions:
-            lines.append(format_transition(transition))
-
-        await send_safe(message.chat.id, "\n".join(lines), parse_mode="Markdown")
-
-    except Exception as e:
-        error_msg = f"Failed to get service history: {e}"
-        logger.error(error_msg)
-        await send_safe(message.chat.id, f"{error_msg}")
+    await send_safe(message.chat.id, "\n".join(lines), parse_mode="Markdown")
 
 
 @bot_commands_menu.add_command("status", "Quick status check")
 @router.message(Command("status"))
 async def status_handler(message: Message):
     """Handle basic status command - shows only active services"""
-    try:
-        services = await _get_services_status()
-        if not services:
-            await send_safe(message.chat.id, "No services registered yet.")
-            return
+    services = await _get_services_status()
+    if not services:
+        await send_safe(message.chat.id, "No services registered yet.")
+        return
 
-        # Format and send status (without dead services and details)
-        lines = format_services_status(services, include_dead=False, include_details=False)
-        await send_safe(message.chat.id, "\n".join(lines), parse_mode="Markdown")
-
-    except Exception as e:
-        error_msg = f"Failed to get services status: {e}"
-        logger.error(error_msg)
-        await send_safe(message.chat.id, f" {error_msg}")
+    # Format and send status (without dead services and details)
+    lines = format_services_status(services, include_dead=False, include_details=False)
+    await send_safe(message.chat.id, "\n".join(lines), parse_mode="Markdown")
 
 
 @bot_commands_menu.add_command("status_full", "Detailed status with all services")
 @router.message(Command("status_full"))
 async def status_full_handler(message: Message):
     """Handle full status command - shows all services with details"""
-    try:
-        services = await _get_services_status()
-        if not services:
-            await send_safe(message.chat.id, "No services registered yet.")
-            return
+    services = await _get_services_status()
+    if not services:
+        await send_safe(message.chat.id, "No services registered yet.")
+        return
 
-        # Format and send status (with dead services and details)
-        lines = format_services_status(services, include_dead=True, include_details=True)
-        await send_safe(message.chat.id, "\n".join(lines), parse_mode="Markdown")
-
-    except Exception as e:
-        error_msg = f"Failed to get services status: {e}"
-        logger.error(error_msg)
-        await send_safe(message.chat.id, f"{error_msg}")
+    # Format and send status (with dead services and details)
+    lines = format_services_status(services, include_dead=True, include_details=True)
+    await send_safe(message.chat.id, "\n".join(lines), parse_mode="Markdown")
